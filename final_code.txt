@@ -1,0 +1,322 @@
+
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Diagnostics;
+using System.Security.Cryptography;
+
+class Connect
+{
+    // Hàm tải tệp từ URL
+    static void Download(string filename, string hostname)
+    {
+        string url = "http://10.81.36.5:8000/" + filename;
+        string savePath = $"C:\\Users\\{hostname}\\"+filename;
+        string command = $"wget -Uri \"{url}\" -OutFile \"{savePath}\"";
+        Console.WriteLine(command);
+        Process process = new Process();
+        process.StartInfo.FileName = "powershell.exe";
+        process.StartInfo.Arguments = $"-Command \"{command}\"";
+        process.StartInfo.RedirectStandardOutput = true;
+        process.StartInfo.RedirectStandardError = true;
+        process.StartInfo.UseShellExecute = false;
+        process.StartInfo.CreateNoWindow = true;
+        try
+        {
+            process.Start();
+
+            string output = process.StandardOutput.ReadToEnd();
+            string error = process.StandardError.ReadToEnd();
+
+            process.WaitForExit();
+            
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception: {ex.Message}");
+            
+        }
+        finally
+        {
+            process.Dispose();
+        }
+    }
+    static void Upload(string filename)
+    {
+        string url = "http://10.81.36.5:5000/upload";
+        string command = $"$uri = \\\"{url}\\\"; $filePath = \\\"{filename}\\\"; $boundary = \\\"----WebKitFormBoundary$(New-Guid)\\\"; $LF = \\\"`r`n\\\"; $body = \\\"--$boundary$LF\\\"; $body += \\\"Content-Disposition: form-data; name=`\\\"file`\\\"; filename=`\\\"$(Split-Path $filePath -Leaf)`\\\"$LF\\\"; $body += \\\"Content-Type: text/plain$LF$LF\\\"; $body += Get-Content -Path $filePath -Raw; $body += \\\"$LF--$boundary--$LF\\\"; $headers = @{{\\\"Content-Type\\\" = \\\"multipart/form-data; boundary=$boundary\\\"}}; $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body";
+        Console.WriteLine(command);
+        Process process = new Process();
+        process.StartInfo.FileName = "powershell.exe";
+        process.StartInfo.Arguments = $"-Command \"{command}\"";
+        process.StartInfo.RedirectStandardOutput = true;
+        process.StartInfo.RedirectStandardError = true;
+        process.StartInfo.UseShellExecute = false;
+        process.StartInfo.CreateNoWindow = true;
+        try
+        {
+            process.Start();
+
+            string output = process.StandardOutput.ReadToEnd();
+            string error = process.StandardError.ReadToEnd();
+
+            process.WaitForExit();
+
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception: {ex.Message}");
+
+        }
+        finally
+        {
+            process.Dispose();
+        }
+    }
+    
+    static Dictionary<string,string> Scan(string filename, string engine, string hostname)
+    {
+
+        Dictionary<string, string> scan_result = new Dictionary<string, string>();
+        string filePath = $"C:\\Users\\{hostname}\\" + filename;
+        string report = $"C:\\Users\\{hostname}\\{engine}_report.txt";
+        string command;
+        if (engine == "Kaspersky")
+        {
+            command = $"& \'C:\\Program Files (x86)\\Kaspersky Lab\\Kaspersky 21.19\\avp.com\' SCAN \'{filePath}\' /R:\'{report}\'";
+        }
+        else
+        {
+            command = $"& \'C:\\Program Files\\Windows Defender\\MpCmdRun.exe\' -Scan -ScanType 3 -File \'{filePath}\'; Get-WinEvent -LogName \'Microsoft-Windows-Windows Defender/Operational\' | Where-Object {{ $_.Id -eq 1116 }} | Select-Object Message | Select-String -Pattern \'{filename}\' > \'{report}\'";
+        }
+        
+        Process process = new Process();
+        process.StartInfo.FileName = "powershell.exe";
+        process.StartInfo.Arguments = $"-Command \"{command}\"";
+        process.StartInfo.RedirectStandardOutput = true;
+        process.StartInfo.RedirectStandardError = true;
+        process.StartInfo.UseShellExecute = false;
+        process.StartInfo.CreateNoWindow = true;
+        try
+        {
+            string ts_start_scan = DateTime.Now.ToString(); //
+            process.Start();
+
+            string output = process.StandardOutput.ReadToEnd();
+            string ts_end_scan = DateTime.Now.ToString(); //
+            string duration;
+            DateTime dt1 = DateTime.Parse(ts_start_scan);
+            DateTime dt2 = DateTime.Parse(ts_end_scan);
+            TimeSpan dur = dt2 - dt1;
+            duration = dur.ToString();
+            string error = process.StandardError.ReadToEnd();
+            scan_result.Add(engine, "");
+            scan_result.Add("ts_start_scan", ts_start_scan);
+            scan_result.Add("ts_end_scan", ts_end_scan);
+            scan_result.Add("duration", duration);
+            scan_result.Add("filename", filename);
+            scan_result.Add("filepath", filePath);
+            scan_result.Add("reportpath", report);
+            process.WaitForExit();
+            return scan_result;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception: {ex.Message}");
+            return scan_result;
+        }
+        finally
+        {
+            process.Dispose();
+        }
+    }
+    static string AnalyzeReport(string reportpath, string hostname, string filepath)
+    {
+        bool check = false;
+        string result = "None";
+        
+        
+        try
+        {
+            if (reportpath.Contains("Kaspersky"))
+            {
+                string pattern = @"detected\s+(\S+)";
+                using (StreamReader sr = new StreamReader(reportpath))
+                {
+                    string line;
+                    while ((line = sr.ReadLine()) != null)
+                    {
+                        
+                        MatchCollection matches = Regex.Matches(line, pattern);
+                        if (matches.Count > 0)
+                        {
+                            
+                            foreach (Match match in matches)
+                            {
+                                result = match.Groups[1].Value;
+                                check = true; break;
+                            }
+                        }
+                        if (check)
+                        {
+                            break;
+                        }
+
+                    }
+                }
+            }
+            else
+            {
+                string pattern = @"Name:\s+(\S+)";
+                using (StreamReader sr = new StreamReader(reportpath))
+                {
+                    string line;
+                    while ((line = sr.ReadLine()) != null)
+                    {
+                        MatchCollection matches = Regex.Matches(line, pattern);
+                        if (matches.Count > 0)
+                        {
+                            foreach (Match match in matches)
+                            {
+                                result = match.Groups[1].Value;
+                                check = true; break;
+                            }
+                        }
+                        if (check) {  break; }
+                    }
+                }
+            }
+            if (check)
+            {
+                using (StreamWriter writer = new StreamWriter(reportpath, append: false))
+                {
+                    writer.WriteLine(result);
+                }
+            }
+            else
+            {
+                using (StreamWriter writer = new StreamWriter(reportpath, append: false))
+                {
+                    writer.WriteLine("None");
+                }
+            }
+            return result;
+        }
+        catch (Exception)
+        {
+            Console.WriteLine("Error");
+            return "Error";
+        }
+    }
+    static string HistoryScan(Dictionary<string, string> results, string hostname)
+    {
+        string reportpath = results["reportpath"];
+        string engine;
+        if (hostname == "HAU-DC")
+        {
+            engine = "Kaspersky";
+        }
+        else
+        {
+            engine = "Windows_Defender";
+        }
+        try
+        {
+            string[] component = new string[] { engine, "ts_start_scan", "ts_end_scan", "duration"};
+            using (StreamWriter writer = new StreamWriter(reportpath, append: false))
+            {
+                foreach(string item in component)
+                {
+                    writer.WriteLine(item +": " + results[item]);
+                }
+            }
+            return reportpath;
+        }
+        catch (Exception){
+            Console.WriteLine("Error");
+            return reportpath;
+        }
+    }
+    static async Task HandleClient(TcpClient client, string hostname)
+    {
+        Dictionary<string,string> report = new Dictionary<string,string>();
+        try
+        {
+            string pattern = @"Download:\s(\S+)";
+            NetworkStream stream = client.GetStream();
+            byte[] buffer = new byte[1024];
+            int bytesRead;
+            Dictionary<string, string> scan_result = new Dictionary<string, string>();
+            // Đọc dữ liệu từ client
+            while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length)) != 0)
+            {
+                string message = Encoding.ASCII.GetString(buffer, 0, bytesRead);
+                Console.WriteLine("Nhan tu client: " + message);
+                MatchCollection matches = Regex.Matches(message, pattern);
+                string filename = "";
+                foreach (Match match in matches)
+                {
+                    filename = match.Groups[1].Value;
+                }
+                Download(filename, hostname);
+                string report_path="";
+                string filepath = "";
+                if (hostname == "HAU-DC")
+                {
+                    //report_path = Scan(filename, "Kaspersky", hostname);
+                    scan_result = Scan(filename, "Kaspersky", hostname);
+                    report_path = scan_result["reportpath"];
+                    filepath = scan_result["filepath"];
+                    report = scan_result;
+                }
+                else
+                {
+                    scan_result = Scan(filename, "Windows_Defender", hostname);
+                    report_path = scan_result["reportpath"];
+                    filepath = scan_result["filepath"];
+                    report = scan_result;
+                }
+                string result = AnalyzeReport(report_path,hostname,filepath);
+                if (hostname == "HAU-DC")
+                {
+                    report["Kaspersky"] = result;
+                }
+                else
+                {
+                    report["Windows_Defender"] = result;
+                }
+                string historyreport = HistoryScan(report, hostname);
+                Upload(historyreport);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Loi ket noi" + ex.Message);
+        }
+        finally
+        {
+            client.Close();
+        }
+    }
+
+    // Hàm khởi tạo server
+    public static async Task StartServer(string hostname)
+    {
+        TcpListener server = new TcpListener(IPAddress.Any, 9999);
+        server.Start();
+        Console.WriteLine("Server dang lang nghe ket noi");
+
+        while (true)
+        {
+            TcpClient client = await server.AcceptTcpClientAsync();
+            Console.WriteLine("Da ket noi");
+            _ = HandleClient(client, hostname);  // Xử lý kết nối từ client trong một task riêng biệt
+        }
+    }
+
+    static void Main(string[] args)
+    {
+        Task.Run(() => StartServer(args[0])).Wait();  // Bắt đầu server
+    }
+}
